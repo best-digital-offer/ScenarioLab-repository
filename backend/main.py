@@ -142,6 +142,7 @@ async def generate_profiles(request: SimulationRequest, graph: dict[str, Any]) -
         "different and grounded only in the supplied scenario/context. Do not invent statistics.",
         f"Create exactly {request.agents} profiles for this scenario:\n{request.scenario}\n\n"
         f"Context and assumptions:\n{request.context or 'No additional context supplied.'}\n\n"
+        f"Extracted seed graph:\n{json.dumps(graph, ensure_ascii=False)}\n\n"
         "Ensure roles differ (for example, loyal customer, price-sensitive customer, product lead, "
         "finance lead, competitor-aware buyer as appropriate). Each opening_opinion should be a "
         "short first-person statement suitable for an initial simulated social post.",
