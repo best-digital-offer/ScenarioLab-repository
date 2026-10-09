@@ -70,8 +70,10 @@ function validateReport(report: any, expectedAgents: number, expectedRounds: num
     const reportText = [
       report.title,
       report.summary,
-      ...activity.map((a: any) => a?.content),
+      // Put named scenario paths first so the headline estimate reflects the
+      // primary scenario rather than whichever activity claim appears first.
       ...scenarios.flatMap((s: any) => [s?.name, s?.detail]),
+      ...activity.map((a: any) => a?.content),
     ].filter((x) => typeof x === "string").join(" ");
     // Recognize explicit churn assumptions in common phrasings, while never
     // treating a revenue output (such as +9.25%) as a churn input.
@@ -124,6 +126,7 @@ function validateReport(report: any, expectedAgents: number, expectedRounds: num
   const suppliedText = `${scenario} ${context}`;
   const suppliedNumbers = new Set((suppliedText.match(/\d+(?:\.\d+)?/g) ?? []).map((n) => Number(n)));
   const calculatedNumbers = new Set<number>();
+  const calculatedRevenueChanges = financialChecks.map((check) => check.estimated_revenue_change_percent);
   for (const check of financialChecks) {
     calculatedNumbers.add(check.price_increase_percent);
     calculatedNumbers.add(check.churn_percent);
@@ -139,7 +142,19 @@ function validateReport(report: any, expectedAgents: number, expectedRounds: num
       .map((match) => match[0].replace(/\s+/g, ""))
       .filter((claim) => {
         const value = Number.parseFloat(claim);
-        return !suppliedNumbers.has(value) && !calculatedNumbers.has(value);
+        if (suppliedNumbers.has(value) || calculatedNumbers.has(value)) return false;
+        // Accept only explicitly approximate revenue wording when it is close
+        // to a calculated result. This avoids flagging "+11.5%" for +11.55%,
+        // while still flagging a materially wrong "~12%" for +12.7%.
+        const start = Math.max(0, (evidenceText.join(" ").indexOf(claim)) - 70);
+        const nearbyApproximation = /(?:~|about|approximately|approx\.?|around|roughly|nearly)\s*$/i.test(
+          evidenceText.join(" ").slice(start, start + 70 + claim.length)
+        );
+        const hasRevenueContext = /revenue|financial impact|impact/i.test(
+          evidenceText.join(" ").slice(start, start + 130)
+        );
+        return !(nearbyApproximation && hasRevenueContext &&
+          calculatedRevenueChanges.some((calculated) => Math.abs(calculated - value) <= 0.3));
       })
   ))].slice(0, 12);
   const ambiguityText = [scenario, context, ...activity.map((a: any) => a?.content), ...scenarios.map((item: any) => item?.detail)]
