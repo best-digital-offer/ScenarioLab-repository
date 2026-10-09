@@ -80,7 +80,11 @@ function validateReport(report: any, expectedAgents: number, expectedRounds: num
       ...reportText.matchAll(/churn(?:\s+rate)?[^.!?\n]{0,55}?(?:of|at|to|above|below|near|around|about|could\s+push\s+(?:it\s+)?to|push\s+(?:it\s+)?to|rise\s+to|increase\s+to|reach|climb\s+to|hit)\s*(\d+(?:\.\d+)?)\s*%/gi),
       ...reportText.matchAll(/(?:churn|customer loss)[^.!?\n]{0,35}?(?:above|below|over|under|near|around|at)\s+(\d+(?:\.\d+)?)\s*%/gi),
     ];
-    const churnRates = [...new Set(churnMatches.map((m) => Number(m[1])).filter((n) => n >= 0 && n <= 100))].slice(0, 8);
+    // Handle paired assumptions such as "assume 5% and 8% churn". The normal
+    // single-rate pattern only sees the second percentage in that phrasing.
+    const pairedChurnRates = [...reportText.matchAll(/(\d+(?:\.\d+)?)\s*%\s*(?:and|&)\s*(\d+(?:\.\d+)?)\s*%\s*(?:customer\s*)?churn(?:\s+rates?)?/gi)]
+      .flatMap((m) => [Number(m[1]), Number(m[2])]);
+    const churnRates = [...new Set([...churnMatches.map((m) => Number(m[1])), ...pairedChurnRates].filter((n) => n >= 0 && n <= 100))].slice(0, 8);
     // Correct headlines that contradict their own positive revenue-growth details.
     for (const item of scenarios) {
       if (typeof item?.name === "string" && typeof item?.detail === "string" &&
