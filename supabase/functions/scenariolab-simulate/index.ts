@@ -118,10 +118,44 @@ function validateReport(report: any, expectedAgents: number, expectedRounds: num
       if (warning) warnings.push(warning);
     }
   }
+  // Evidence review: numeric claims in generated prose are not automatically facts.
+  const suppliedText = `${scenario} ${context}`;
+  const suppliedNumbers = new Set((suppliedText.match(/\\d+(?:\\.\\d+)?/g) ?? []).map((n) => Number(n)));
+  const calculatedNumbers = new Set<number>();
+  for (const check of financialChecks) {
+    calculatedNumbers.add(check.price_increase_percent);
+    calculatedNumbers.add(check.churn_percent);
+    calculatedNumbers.add(check.estimated_revenue_change_percent);
+  }
+  const evidenceText = [
+    ...activity.map((a: any) => typeof a?.content === "string" ? a.content : ""),
+    ...scenarios.map((item: any) => typeof item?.detail === "string" ? item.detail : ""),
+    ...signals.filter((signal: unknown) => typeof signal === "string"),
+  ];
+  const unverifiedNumericClaims = [...new Set(evidenceText.flatMap((text) =>
+    [...text.matchAll(/\\b\\d+(?:\\.\\d+)?\\s*%/g)]
+      .map((match) => match[0].replace(/\\s+/g, ""))
+      .filter((claim) => {
+        const value = Number.parseFloat(claim);
+        return !suppliedNumbers.has(value) && !calculatedNumbers.has(value);
+      })
+  ))].slice(0, 12);
+  const ambiguityText = [scenario, context, ...activity.map((a: any) => a?.content), ...scenarios.map((item: any) => item?.detail)]
+    .filter((value) => typeof value === "string").join(" ");
+  const ambiguousChurnPhrases = [...new Set(
+    [...ambiguityText.matchAll(/(?:\\d+(?:\\.\\d+)?\\s*%\\s*(?:rise|increase|jump|spike|growth)\\s+in\\s+churn|churn\\s+(?:rise|increase|jump|spike)\\s+(?:of|by)\\s*\\d+(?:\\.\\d+)?\\s*%|churn\\s+(?:rises|increases|jumps|spikes)\\s+by\\s*\\d+(?:\\.\\d+)?\\s*%)/gi)]
+      .map((match) => match[0])
+  )].slice(0, 8);
+
   return {
     passed: warnings.length === 0,
     warnings,
     financial_checks: financialChecks,
+    evidence_review: {
+      unverified_numeric_claims: unverifiedNumericClaims,
+      ambiguous_churn_phrases: ambiguousChurnPhrases,
+      note: "Numeric claims not present in the supplied scenario/context or derivable from listed financial checks need source verification. AI-generated assumptions are not observed facts.",
+    },
     structural: {
       expected_agents: expectedAgents,
       returned_agents: profiles.length,
