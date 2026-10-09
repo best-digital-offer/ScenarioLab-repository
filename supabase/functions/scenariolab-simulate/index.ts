@@ -38,6 +38,75 @@ async function fingerprint(ip: string): Promise<string> {
   return Array.from(new Uint8Array(digest)).map((x) => x.toString(16).padStart(2, "0")).join("");
 }
 
+function validateReport(report: any, expectedAgents: number, expectedRounds: number, scenario: string, context: string) {
+  const warnings: string[] = [];
+  const profiles = Array.isArray(report.agent_profiles) ? report.agent_profiles : [];
+  const activity = Array.isArray(report.activity) ? report.activity : [];
+  const scenarios = Array.isArray(report.scenarios) ? report.scenarios : [];
+  const signals = Array.isArray(report.signals) ? report.signals : [];
+  if (profiles.length !== expectedAgents) warnings.push(`Expected ${expectedAgents} agent profiles but received ${profiles.length}.`);
+  if (activity.length < 3 || activity.length > 8) warnings.push(`Expected 3–8 activity records but received ${activity.length}.`);
+  if (scenarios.length < 2 || scenarios.length > 4) warnings.push(`Expected 2–4 future paths but received ${scenarios.length}.`);
+  if (signals.length < 3 || signals.length > 6) warnings.push(`Expected 3–6 signals but received ${signals.length}.`);
+
+  const graph = report.knowledge_graph;
+  const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
+  const edges = Array.isArray(graph?.edges) ? graph.edges : [];
+  const nodeIds = new Set(nodes.map((n: any) => n?.id).filter((id: unknown) => typeof id === "string"));
+  const invalidEdges = edges.filter((e: any) => !nodeIds.has(e?.source) || !nodeIds.has(e?.target));
+  if (!graph || nodes.length < 4) warnings.push("Knowledge graph is missing or has fewer than 4 nodes.");
+  if (invalidEdges.length) warnings.push(`${invalidEdges.length} graph relationship(s) reference missing node IDs.`);
+  if (edges.length < 3) warnings.push("Knowledge graph has fewer than 3 relationships.");
+  const activityAgents = new Set(activity.map((a: any) => a?.agent).filter((a: unknown) => typeof a === "string"));
+  const unknownActivityAgents = [...activityAgents].filter((name) => !profiles.some((p: any) => p?.username === name || p?.name === name));
+  if (unknownActivityAgents.length) warnings.push("Some activity records reference agents not found in the profile list.");
+
+  const financialChecks: Array<{ price_increase_percent: number; churn_percent: number; estimated_revenue_change_percent: number; assumption: string; warning?: string }> = [];
+  const inputText = `${scenario} ${context}`;
+  const priceMatch = inputText.match(/(?:increase|hike|raise|rise)[^.!?\n]{0,70}?(\d+(?:\.\d+)?)\s*%/i)
+    ?? inputText.match(/(\d+(?:\.\d+)?)\s*%[^.!?\n]{0,45}(?:price increase|price hike|subscription increase)/i);
+  const priceIncrease = priceMatch ? Number(priceMatch[1]) : NaN;
+  if (Number.isFinite(priceIncrease) && priceIncrease >= 0 && priceIncrease <= 500 && /churn|cancell?ation|customer loss/i.test(inputText + " " + JSON.stringify(report))) {
+    const reportText = [report.summary, ...activity.map((a: any) => a?.content), ...scenarios.map((s: any) => s?.detail)].filter((x) => typeof x === "string").join(" ");
+    const churnMatches = [...reportText.matchAll(/(\d+(?:\.\d+)?)\s*%\s*(?:customer\s*)?churn/gi)];
+    const churnRates = [...new Set(churnMatches.map((m) => Number(m[1])).filter((n) => n >= 0 && n <= 100))].slice(0, 8);
+    for (const churn of churnRates) {
+      const change = ((1 + priceIncrease / 100) * (1 - churn / 100) - 1) * 100;
+      const rounded = Math.round(change * 100) / 100;
+      const relatedSentence = reportText.split(/(?<=[.!?])\s+/).find((sentence) =>
+        sentence.includes(`${churn}%`) && /revenue[^.!?]{0,50}(drop|declin|decreas|fall|loss|negative)|(?:drop|declin|decreas|fall|loss|negative)[^.!?]{0,50}revenue/i.test(sentence)
+      );
+      const warning = rounded > 0.05 && relatedSentence
+        ? `Potential contradiction: ${churn}% churn with a ${priceIncrease}% price increase implies approximately +${rounded}% revenue under the simplified formula, but the report describes a revenue decline.`
+        : undefined;
+      financialChecks.push({
+        price_increase_percent: priceIncrease,
+        churn_percent: churn,
+        estimated_revenue_change_percent: rounded,
+        assumption: "Same customer mix; higher price applies to remaining customers; ignores taxes, discounts, upgrades, and timing.",
+        ...(warning ? { warning } : {}),
+      });
+      if (warning) warnings.push(warning);
+    }
+  }
+  return {
+    passed: warnings.length === 0,
+    warnings,
+    financial_checks: financialChecks,
+    structural: {
+      expected_agents: expectedAgents,
+      returned_agents: profiles.length,
+      activity_records: activity.length,
+      scenario_paths: scenarios.length,
+      signals: signals.length,
+      graph_nodes: nodes.length,
+      graph_edges: edges.length,
+      invalid_graph_edges: invalidEdges.length,
+    },
+    note: "Automated checks catch selected structural and arithmetic issues; they cannot prove a forecast is true or detect every semantic contradiction.",
+  };
+}
+
 Deno.serve(async (req: Request) => {
   const origin = req.headers.get("origin");
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders(origin) });
@@ -116,6 +185,7 @@ Create exactly ${agents} distinct fictional stakeholder profiles and 3-8 short a
       throw new Error("The model returned an incomplete report. Please retry.");
     }
     report.knowledge_graph ??= { nodes: [], edges: [], storage: "Supabase-persisted run graph", graph_rag_enabled: false };
+    report.validation = validateReport(report, agents, rounds, scenario, context);
     report.simulation = {
       engine: "ScenarioLab lightweight LLM simulation",
       platform: "synthetic multi-perspective exchange",
