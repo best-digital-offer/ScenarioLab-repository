@@ -76,21 +76,21 @@ function validateReport(report: any, expectedAgents: number, expectedRounds: num
     // Recognize explicit churn assumptions in common phrasings, while never
     // treating a revenue output (such as +9.25%) as a churn input.
     const churnMatches = [
-      ...reportText.matchAll(/(\\d+(?:\\.\\d+)?)\\s*%\\s*(?:(?:customer|baseline|projected|expected|estimated|overall|monthly|annual)\\s*)*churn(?:\\s+rate)?/gi),
-      ...reportText.matchAll(/churn(?:\\s+rate)?[^.!?\\n]{0,55}?(?:of|at|to|above|below|near|around|about|could\\s+push\\s+(?:it\\s+)?to|push\\s+(?:it\\s+)?to|rise\\s+to|increase\\s+to|reach|climb\\s+to|hit)\\s*(\\d+(?:\\.\\d+)?)\\s*%/gi),
-      ...reportText.matchAll(/(?:churn|customer loss)[^.!?\\n]{0,35}?(?:above|below|over|under|near|around|at)\\s+(\\d+(?:\\.\\d+)?)\\s*%/gi),
+      ...reportText.matchAll(/(\d+(?:\.\d+)?)\s*%\s*(?:(?:customer|baseline|projected|expected|estimated|overall|monthly|annual)\s*)*churn(?:\s+rate)?/gi),
+      ...reportText.matchAll(/churn(?:\s+rate)?[^.!?\n]{0,55}?(?:of|at|to|above|below|near|around|about|could\s+push\s+(?:it\s+)?to|push\s+(?:it\s+)?to|rise\s+to|increase\s+to|reach|climb\s+to|hit)\s*(\d+(?:\.\d+)?)\s*%/gi),
+      ...reportText.matchAll(/(?:churn|customer loss)[^.!?\n]{0,35}?(?:above|below|over|under|near|around|at)\s+(\d+(?:\.\d+)?)\s*%/gi),
     ];
     const churnRates = [...new Set(churnMatches.map((m) => Number(m[1])).filter((n) => n >= 0 && n <= 100))].slice(0, 8);
-    // If a scenario headline says revenue declines while its detail says growth
-    // under the same assumptions, correct the misleading headline deterministically.
+    // Correct headlines that contradict their own positive revenue-growth details.
     for (const item of scenarios) {
       if (typeof item?.name === "string" && typeof item?.detail === "string" &&
-          /revenue\\s+(?:decline|drop|loss|fall)/i.test(item.name) &&
-          /(?:revenue\\s+)?(?:growth|increase|grows|increases|positive)/i.test(item.detail)) {
-        item.name = item.name.replace(/revenue\\s+(?:decline|drop|loss|fall)/i, "Slower Revenue Growth");
+          /revenue\s+(?:decline|drop|loss|fall)/i.test(item.name) &&
+          /(?:revenue\s+)?(?:growth|increase|grows|increases|positive)/i.test(item.detail)) {
+        item.name = item.name.replace(/revenue\s+(?:decline|drop|loss|fall)/i, "Slower Revenue Growth");
         warnings.push("Corrected a scenario title that said revenue would decline while its detail described revenue growth.");
       }
     }
+    for (const churn of churnRates) {
       const change = ((1 + priceIncrease / 100) * (1 - churn / 100) - 1) * 100;
       const rounded = Math.round(change * 100) / 100;
       const relatedSentence = reportText.split(/(?<=[.!?])\s+/).find((sentence) =>
