@@ -1,24 +1,41 @@
 # ScenarioLab
 
-ScenarioLab is an independent decision-simulation SaaS with a Next.js frontend and a separate Python simulation worker. Its direction is inspired by the documented multi-stage MiroFish architecture, without copying upstream source files.
+ScenarioLab is an independent, lightweight decision-simulation SaaS. The existing Next.js frontend is preserved and now calls a Supabase Edge Function. Groq produces distinct fictional stakeholder perspectives, a short synthetic exchange, a compact seed graph, possible paths, and signals in one bounded model request.
 
 ## Current architecture
 
-1. **Seed graph:** Groq extracts a bounded set of entities and relationships from the user's scenario and context. This is currently a per-run local graph, not yet Zep GraphRAG.
-2. **Agent profiles:** Groq creates distinct stakeholder personas and opening opinions grounded in the seed graph.
-3. **Simulation environment:** CAMEL-OASIS creates a Twitter-like simulated environment; each agent posts an opening opinion and then performs model-driven actions for the requested rounds.
-4. **Evidence extraction:** the worker inspects OASIS's SQLite output for recorded activity.
-5. **ReportAgent pass:** a separate LLM request summarizes observed activity, separates evidence from assumptions, and returns structured findings.
+1. **Frontend:** Next.js on Vercel; the existing workspace and report UI are retained.
+2. **Simulation endpoint:** Supabase Edge Function `scenariolab-simulate` (TypeScript/Deno); no Python worker or Render memory required.
+3. **LLM:** Groq Chat Completions, default model `openai/gpt-oss-20b`; one model call per run to minimize cost.
+4. **Persistence/job tracking:** `public.simulations` stores each run's scenario, status, model, report, timestamps, and a hashed request fingerprint. Status moves through `running`, `completed`, or `failed`.
+5. **Basic abuse control:** up to five runs per hour per observed client IP fingerprint. This is a lightweight demo safeguard, not a complete production anti-abuse system.
 
-## Requirements
+## Required setup
 
-- Node.js 20+ and npm for the frontend
-- Python 3.11+ for the worker
-- Groq API key (server-side only)
-- Render or another persistent Python service host for the OASIS worker
-- Supabase is prepared for a later authentication and report-persistence phase
+### 1. Supabase Edge Function secret
 
-## Local frontend setup
+In Supabase Dashboard, open **Project Settings / Edge Functions / Secrets** (or **Edge Functions → Secrets**) for project `zlxzhunkndeiotddppmf` and add:
+
+- `GROQ_API_KEY` = your Groq API key
+
+The function uses `openai/gpt-oss-20b` by default. You can optionally set `GROQ_MODEL` to another Groq-supported model. Do not commit the Groq key or put it in a `NEXT_PUBLIC_*` variable.
+
+### 2. Vercel environment variables
+
+Set these for the Vercel project and redeploy:
+
+- `NEXT_PUBLIC_SUPABASE_URL=https://zlxzhunkndeiotddppmf.supabase.co`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` = the project's publishable key or legacy anon key (browser-safe key only)
+
+The function is deployed at:
+
+`https://zlxzhunkndeiotddppmf.supabase.co/functions/v1/scenariolab-simulate`
+
+### 3. Database
+
+The existing `public.simulations` table is reused. Migration `20261009065317_add_simulation_request_fingerprint.sql` adds the hashed fingerprint column and index used for hourly run limits. The migration has already been applied to the linked Supabase project.
+
+## Local frontend
 
 ```bash
 npm install
@@ -26,36 +43,15 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Set `NEXT_PUBLIC_SIMULATION_BACKEND_URL` to the Python worker URL to use real OASIS simulation. If it is blank, the frontend currently falls back to the legacy single-call report endpoint; that fallback is not a multi-agent simulation.
+Use your Supabase project URL and public anon/publishable key in `.env.local`. Keep Groq credentials only in Supabase Edge Function secrets.
 
-## Local worker setup
+## Important limits
 
-```bash
-cd backend
-python -m venv .venv
-# Activate the virtual environment, then:
-pip install -r requirements.txt
-export LLM_API_KEY=your_groq_key
-uvicorn main:app --host 0.0.0.0 --port 8000
-```
-
-Worker health endpoint: `GET /health`. Simulation endpoint: `POST /api/simulate`.
-
-## Worker environment variables
-
-- `LLM_API_KEY`: required Groq key
-- `LLM_BASE_URL`: default `https://api.groq.com/openai/v1`
-- `LLM_MODEL_NAME`: default `openai/gpt-oss-20b`
-- `FRONTEND_ORIGIN`: allowed frontend origin(s), comma-separated
-
-## Important current limits
-
-- First worker milestone uses the OASIS Twitter-like environment only.
-- Seed graph is generated locally per run; persistent Zep GraphRAG and long-term graph-memory updates are not yet implemented.
-- No document upload/ingestion, parallel Reddit simulation, durable background job queue, or post-run agent chat yet.
-- Worker currently uses a bounded synchronous request. Begin with 3 agents and 1 round; longer runs may exceed service request limits.
-- Add durable jobs, user authentication, quotas, rate limits, and persistent artifacts before public production.
-- The upstream MiroFish repository is AGPL-3.0. This worker is an original integration layer using CAMEL-OASIS, not a copy of MiroFish source files. Review dependency licenses and upstream notices before distribution.
+- This is a **lightweight LLM-generated simulation**, not CAMEL-OASIS, a real social-network environment, or the complete MiroFish/GraphRAG architecture.
+- The model generates synthetic agent profiles, activity, a compact graph, and possible paths in a single call; it does not run independently acting agent processes.
+- Likelihood labels are qualitative, not calibrated forecasts.
+- The hourly IP fingerprint limit is only a basic safeguard. Before public production, add authentication, per-user quotas, stronger rate limiting, and monitoring.
+- The upstream MiroFish repository is AGPL-3.0. ScenarioLab is an independent integration and does not copy MiroFish source files.
 
 ## Project
 
