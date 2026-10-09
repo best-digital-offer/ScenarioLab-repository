@@ -68,7 +68,10 @@ function validateReport(report: any, expectedAgents: number, expectedRounds: num
   const priceIncrease = priceMatch ? Number(priceMatch[1]) : NaN;
   if (Number.isFinite(priceIncrease) && priceIncrease >= 0 && priceIncrease <= 500 && /churn|cancell?ation|customer loss/i.test(inputText + " " + JSON.stringify(report))) {
     const reportText = [report.summary, ...activity.map((a: any) => a?.content), ...scenarios.map((s: any) => s?.detail)].filter((x) => typeof x === "string").join(" ");
-    const churnMatches = [...reportText.matchAll(/(\d+(?:\.\d+)?)\s*%\s*(?:customer\s*)?churn/gi)];
+    const churnMatches = [
+      ...reportText.matchAll(/(\d+(?:\.\d+)?)\s*%\s*(?:customer\s*)?churn/gi),
+      ...reportText.matchAll(/churn[^.!?\n]{0,45}?(\d+(?:\.\d+)?)\s*%/gi),
+    ];
     const churnRates = [...new Set(churnMatches.map((m) => Number(m[1])).filter((n) => n >= 0 && n <= 100))].slice(0, 8);
     for (const churn of churnRates) {
       const change = ((1 + priceIncrease / 100) * (1 - churn / 100) - 1) * 100;
