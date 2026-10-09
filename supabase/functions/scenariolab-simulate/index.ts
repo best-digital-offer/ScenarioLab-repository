@@ -139,23 +139,22 @@ function validateReport(report: any, expectedAgents: number, expectedRounds: num
   ];
   const unverifiedNumericClaims = [...new Set(evidenceText.flatMap((text) =>
     [...text.matchAll(/\b\d+(?:\.\d+)?\s*%/g)]
-      .map((match) => match[0].replace(/\s+/g, ""))
-      .filter((claim) => {
+      .filter((match) => {
+        const claim = match[0].replace(/\s+/g, "");
         const value = Number.parseFloat(claim);
         if (suppliedNumbers.has(value) || calculatedNumbers.has(value)) return false;
-        // Accept only explicitly approximate revenue wording when it is close
-        // to a calculated result. This avoids flagging "+11.5%" for +11.55%,
-        // while still flagging a materially wrong "~12%" for +12.7%.
-        const start = Math.max(0, (evidenceText.join(" ").indexOf(claim)) - 70);
-        const nearbyApproximation = /(?:~|about|approximately|approx\.?|around|roughly|nearly)\s*$/i.test(
-          evidenceText.join(" ").slice(start, start + 70 + claim.length)
-        );
-        const hasRevenueContext = /revenue|financial impact|impact/i.test(
-          evidenceText.join(" ").slice(start, start + 130)
-        );
-        return !(nearbyApproximation && hasRevenueContext &&
+        const sentenceStart = Math.max(text.lastIndexOf(".", match.index ?? 0), text.lastIndexOf("!", match.index ?? 0), text.lastIndexOf("?", match.index ?? 0)) + 1;
+        const sentenceEndCandidates = [text.indexOf(".", match.index ?? 0), text.indexOf("!", match.index ?? 0), text.indexOf("?", match.index ?? 0)].filter((n) => n >= 0);
+        const sentenceEnd = sentenceEndCandidates.length ? Math.min(...sentenceEndCandidates) + 1 : text.length;
+        const sentence = text.slice(sentenceStart, sentenceEnd);
+        // Accept explicitly approximate revenue wording only when it is close
+        // to a calculated result; material errors remain flagged.
+        const approximate = /(?:~|about|approximately|approx\.?|around|roughly|nearly)\s*\d+(?:\.\d+)?\s*%/i.test(sentence);
+        const revenueContext = /revenue|financial impact|impact/i.test(sentence);
+        return !(approximate && revenueContext &&
           calculatedRevenueChanges.some((calculated) => Math.abs(calculated - value) <= 0.3));
       })
+      .map((match) => match[0].replace(/\s+/g, ""))
   ))].slice(0, 12);
   const ambiguityText = [scenario, context, ...activity.map((a: any) => a?.content), ...scenarios.map((item: any) => item?.detail)]
     .filter((value) => typeof value === "string").join(" ");
