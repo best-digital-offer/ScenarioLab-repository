@@ -37,6 +37,9 @@ allowed_origins = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
+    # Allow Vercel preview deployments as well as the configured production origin.
+    # No cookies are used by this public API, so credentials remain disabled.
+    allow_origin_regex=os.getenv("FRONTEND_ORIGIN_REGEX", r"https://.*\\.vercel\\.app"),
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-ScenarioLab-Token"],
