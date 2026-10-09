@@ -77,7 +77,8 @@ function validateReport(report: any, expectedAgents: number, expectedRounds: num
       const change = ((1 + priceIncrease / 100) * (1 - churn / 100) - 1) * 100;
       const rounded = Math.round(change * 100) / 100;
       const relatedSentence = reportText.split(/(?<=[.!?])\s+/).find((sentence) =>
-        sentence.includes(`${churn}%`) && /revenue[^.!?]{0,50}(drop|declin|decreas|fall|loss|negative)|(?:drop|declin|decreas|fall|loss|negative)[^.!?]{0,50}revenue/i.test(sentence)
+        sentence.includes(`${churn}%`) &&
+        (/revenue[^.!?]{0,70}(drop|declin|decreas|fall|loss|negative)|(?:drop|declin|decreas|fall|loss|negative)[^.!?]{0,70}revenue|net decline|net loss|overall decline|overall loss/i.test(sentence))
       );
       const warning = rounded > 0.05 && relatedSentence
         ? `Potential contradiction: ${churn}% churn with a ${priceIncrease}% price increase implies approximately +${rounded}% revenue under the simplified formula, but the report describes a revenue decline.`
