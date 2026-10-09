@@ -89,7 +89,52 @@ async def llm_json(system: str, user: str, max_tokens: int = 1800) -> dict[str, 
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"LLM request failed: {type(exc).__name__}") from exc
 
-async def generate_profiles(request: SimulationRequest) -> list[dict[str, Any]]:
+
+async def build_seed_graph(request: SimulationRequest) -> dict[str, Any]:
+    """Extract a bounded entity/relationship graph from the supplied seed text."""
+    data = await llm_json(
+        "Extract a compact knowledge graph for a scenario simulation. Return only JSON with "
+        "nodes (array of objects with id, label, type, description) and edges "
+        "(array of objects with source, target, relation). Use only entities and relationships "
+        "reasonably supported by the supplied scenario/context. Mark inferred items as inferred. "
+        "Return 4-12 nodes and 3-20 edges. Do not invent external facts or statistics.",
+        f"Scenario: {request.scenario}\\nContext/source material: {request.context or 'No additional context supplied.'}",
+        max_tokens=1200,
+    )
+    nodes = data.get("nodes")
+    edges = data.get("edges")
+    if not isinstance(nodes, list) or not isinstance(edges, list):
+        raise HTTPException(status_code=502, detail="The model did not return a valid seed graph.")
+    clean_nodes = []
+    known_ids = set()
+    for index, node in enumerate(nodes[:12]):
+        if not isinstance(node, dict):
+            continue
+        label = str(node.get("label") or "").strip()[:120]
+        node_id = str(node.get("id") or f"entity_{index + 1}").strip()[:80]
+        if not label or node_id in known_ids:
+            continue
+        known_ids.add(node_id)
+        clean_nodes.append({
+            "id": node_id,
+            "label": label,
+            "type": str(node.get("type") or "concept")[:80],
+            "description": str(node.get("description") or "")[:500],
+        })
+    clean_edges = []
+    for edge in edges[:20]:
+        if not isinstance(edge, dict):
+            continue
+        source = str(edge.get("source") or "")
+        target = str(edge.get("target") or "")
+        relation = str(edge.get("relation") or "").strip()[:120]
+        if source in known_ids and target in known_ids and source != target and relation:
+            clean_edges.append({"source": source, "target": target, "relation": relation})
+    if len(clean_nodes) < 3:
+        raise HTTPException(status_code=502, detail="The seed graph contained too few valid entities.")
+    return {"nodes": clean_nodes, "edges": clean_edges, "storage": "per-run in-memory graph", "graph_rag_enabled": False}
+
+async def generate_profiles(request: SimulationRequest, graph: dict[str, Any]) -> list[dict[str, Any]]:
     data = await llm_json(
         "Create distinct fictional stakeholder profiles for a bounded social simulation. "
         "Return only JSON with key profiles: an array. Each profile must have name, username, "
@@ -169,7 +214,8 @@ async def health():
 async def simulate(request: SimulationRequest):
     """Run a small real OASIS social simulation and analyze its recorded output."""
     key, base, model_name = config()
-    profiles = await generate_profiles(request)
+    seed_graph = await build_seed_graph(request)
+    profiles = await generate_profiles(request, seed_graph)
 
     try:
         # OASIS is loaded lazily so /health can still diagnose a deployment with missing dependencies.
@@ -265,6 +311,7 @@ async def simulate(request: SimulationRequest):
         )
         report_data["agent_profiles"] = profiles
         report_data["activity"] = activity
+        report_data["knowledge_graph"] = seed_graph
         report_data["simulation"] = {
             "engine": "camel-oasis",
             "platform": "twitter-like simulated environment",
