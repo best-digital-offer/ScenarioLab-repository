@@ -215,9 +215,6 @@ async def health():
 async def simulate(request: SimulationRequest):
     """Run a small real OASIS social simulation and analyze its recorded output."""
     key, base, model_name = config()
-    seed_graph = await build_seed_graph(request)
-    profiles = await generate_profiles(request, seed_graph)
-
     try:
         # OASIS is loaded lazily so /health can still diagnose a deployment with missing dependencies.
         from camel.models import ModelFactory
@@ -226,6 +223,10 @@ async def simulate(request: SimulationRequest):
         from oasis import ActionType, LLMAction, ManualAction, generate_twitter_agent_graph
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"OASIS dependencies are unavailable: {type(exc).__name__}. Check backend build logs.") from exc
+
+    # Check dependencies before making any paid model calls.
+    seed_graph = await build_seed_graph(request)
+    profiles = await generate_profiles(request, seed_graph)
 
     with tempfile.TemporaryDirectory(prefix="scenariolab-") as work:
         root = Path(work)
