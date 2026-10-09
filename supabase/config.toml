@@ -1,0 +1,4 @@
+project_id = "zlxzhunkndeiotddppmf"
+
+[functions.scenariolab-simulate]
+verify_jwt = true
