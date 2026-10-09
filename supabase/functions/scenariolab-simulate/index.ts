@@ -156,12 +156,16 @@ Deno.serve(async (req: Request) => {
 
   const ip = req.headers.get("cf-connecting-ip") ?? req.headers.get("x-real-ip") ?? req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown-client";
   const requestFingerprint = await fingerprint(ip);
+  const configuredHourlyLimit = Number(Deno.env.get("FREE_RUNS_PER_HOUR") ?? "10");
+  const hourlyLimit = Number.isFinite(configuredHourlyLimit)
+    ? Math.min(50, Math.max(1, Math.floor(configuredHourlyLimit)))
+    : 10;
   const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   const { count, error: countError } = await supabaseAdmin
     .from("simulations").select("id", { count: "exact", head: true })
     .eq("request_fingerprint", requestFingerprint).gte("created_at", since);
   if (countError) return json({ error: "Could not check simulation limits. Please retry shortly." }, 503, origin);
-  if ((count ?? 0) >= 5) return json({ error: "Free demo limit reached: up to 5 runs per hour from this connection. Please try again later." }, 429, origin);
+  if ((count ?? 0) >= hourlyLimit) return json({ error: `Free demo limit reached: up to ${hourlyLimit} runs per hour from this connection. Please try again later.` }, 429, origin);
 
   const { data: job, error: insertError } = await supabaseAdmin.from("simulations").insert({
     title: scenario.slice(0, 160), scenario, context, status: "running",
