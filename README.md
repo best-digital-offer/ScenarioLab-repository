@@ -33,7 +33,7 @@ The function is deployed at:
 
 ### 3. Database
 
-The existing `public.simulations` table is reused. Migration `20261009065317_add_simulation_request_fingerprint.sql` adds the hashed fingerprint column and index used for hourly run limits. The migration has already been applied to the linked Supabase project.
+The existing `public.simulations` table is reused. Migration `20261009065317_add_simulation_request_fingerprint.sql` adds the hashed fingerprint column and index; migration `20261009070000_allow_anonymous_simulation_jobs.sql` allows demo jobs without a signed-in user. Both changes have been applied to the linked Supabase project.
 
 ## Local frontend
 
